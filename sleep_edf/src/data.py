@@ -3,7 +3,7 @@ from pyedflib import highlevel
 import pandas as pd
 import numpy as np
 from scipy import signal
-from scipy.fft import fft, ifft
+from scipy.fft import fft, fftfreq
 
 
 class BaseDataSet:
@@ -147,25 +147,7 @@ class FeatureEngineering(BaseDataSet):
         self.columns = self.df.columns
         return filtered_eeg_df
 
-    def make_fourier_transformed_df(
-            self,
-            id_select: int,
-            column_select: list[int, list] = None
-            ) -> pd.DataFrame:
-        eeg_df = self.make_eeg_df(id_select, column_select)
-        self.selected_id = id_select
-        self.seleted_column = column_select
-        columns = eeg_df.columns
-        fourier_df = pd.DataFrame()
-        if column_select:
-            for i in column_select:
-                fourier_df[f'{columns[i]}_fourier'] = \
-                    ifft(fft(eeg_df[columns[i]].values))
-        self.df = pd.concat([self.df, fourier_df], axis=1)
-        self.columns = self.df.columns
-        return fourier_df
-
-    def extract_statistic_feature(
+    def make_statistic_df(
             self,
             init_df: list[int | list[int]] = None,
             mean: bool = True,
@@ -210,6 +192,51 @@ class FeatureEngineering(BaseDataSet):
 
         self.df = extracted_df
         self.columns = extracted_df.columns
+        return extracted_df
+
+    def extract_fourier_transformed_statistic_values(
+            self,
+            segment: np.ndarray,
+            sample_rate: float = 100.0
+            ) -> np.ndarray:
+        n = len(segment)
+        yf = fft(segment)
+        # xf = fftfreq(n, 1 / sample_rate)
+        amplitude = np.abs(yf[:n // 2])
+
+        return np.mean(amplitude), np.median(amplitude), np.min(amplitude), np.max(amplitude), np.std(amplitude)
+
+    def make_fourier_transformed_df(
+        self,
+        id_select: int,
+        column_select: list[int]
+    ) -> pd.DataFrame:
+        df = self.make_eeg_df(id_select, column_select)
+        columns = df.columns
+
+        extracted_df = pd.DataFrame()
+        for column in columns:
+            datas = np.zeros((rows := len(df)//3000, 3000))
+
+            for row in range(0, rows):
+                datas[row] = df[column][row*3000:(row+1)*3000].values
+            transformed_datas = np.array([
+                self.extract_fourier_transformed_statistic_values(data)
+                for data in datas
+                ])
+            extracted_df[f'{column}_fourier_transed_mean'] = \
+                transformed_datas[:, 0]
+            extracted_df[f'{column}_fourier_transed_median'] = \
+                transformed_datas[:, 1]
+            extracted_df[f'{column}_fourier_transed_min'] = \
+                transformed_datas[:, 2]
+            extracted_df[f'{column}_fourier_transed_max'] = \
+                transformed_datas[:, 3]
+            extracted_df[f'{column}_fourier_transed_std'] = \
+                transformed_datas[:, 4]
+
+            self.df = pd.concat([self.df, extracted_df], axis=1)
+            self.columns = self.df.columns
         return extracted_df
 
     def make_previous_data(self):
@@ -268,14 +295,8 @@ def make_train_df(
         if band_filter:
             init = 1
             dataset.make_filtered_df(id_select=id, column_select=column_select)
-        if fourier_transform:
-            init = 1
-            dataset.make_fourier_transformed_df(
-                id_select=id,
-                column_select=column_select
-                )
         if not init:
-            dataset.extract_statistic_feature(
+            dataset.make_statistic_df(
                 init_df=[id, column_select],
                 mean=mean,
                 median=median,
@@ -286,7 +307,7 @@ def make_train_df(
                 peak=peak
                 )
         else:
-            dataset.extract_statistic_feature(
+            dataset.make_statistic_df(
                 mean=mean,
                 median=median,
                 max=max,
@@ -295,6 +316,12 @@ def make_train_df(
                 var=var,
                 peak=peak
             )
+        if fourier_transform:
+            dataset.make_fourier_transformed_df(
+                id_select=id,
+                column_select=column_select
+                )
+
         dataset.make_previous_data()
         dataset.make_labels()
         dataset.df.drop(
