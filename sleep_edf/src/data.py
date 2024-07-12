@@ -197,19 +197,30 @@ class FeatureEngineering(BaseDataSet):
     def extract_fourier_transformed_statistic_values(
             self,
             segment: np.ndarray,
-            sample_rate: float = 100.0
+            sample_rate: float = 100.0,
+            low_freq: float = None,
+            high_freq: float = None
             ) -> np.ndarray:
+        if (low_freq is not None) and (high_freq is not None):
+            n = len(segment)
+            yf = fft(segment)
+            xf = fftfreq(n, 1 / sample_rate)
+            amplitude = np.abs(yf[:n // 2])
+            freq_mask = (xf[:n // 2] >= low_freq) & (xf[:n // 2] <= high_freq)
+            selected_amplitude = amplitude[freq_mask]
+            return np.mean(selected_amplitude),np.median(selected_amplitude),np.min(selected_amplitude),np.max(selected_amplitude),np.std(selected_amplitude)
         n = len(segment)
         yf = fft(segment)
         # xf = fftfreq(n, 1 / sample_rate)
         amplitude = np.abs(yf[:n // 2])
-
         return np.mean(amplitude), np.median(amplitude), np.min(amplitude), np.max(amplitude), np.std(amplitude)
 
     def make_fourier_transformed_df(
         self,
         id_select: int,
-        column_select: list[int]
+        column_select: list[int],
+        low_freq: float = None,
+        high_freq: float = None
     ) -> pd.DataFrame:
         df = self.make_eeg_df(id_select, column_select)
         columns = df.columns
@@ -221,19 +232,35 @@ class FeatureEngineering(BaseDataSet):
             for row in range(0, rows):
                 datas[row] = df[column][row*3000:(row+1)*3000].values
             transformed_datas = np.array([
-                self.extract_fourier_transformed_statistic_values(data)
+                self.extract_fourier_transformed_statistic_values(
+                    data,
+                    low_freq=low_freq,
+                    high_freq=high_freq
+                    )
                 for data in datas
                 ])
-            extracted_df[f'{column}_fourier_transed_mean'] = \
-                transformed_datas[:, 0]
-            extracted_df[f'{column}_fourier_transed_median'] = \
-                transformed_datas[:, 1]
-            extracted_df[f'{column}_fourier_transed_min'] = \
-                transformed_datas[:, 2]
-            extracted_df[f'{column}_fourier_transed_max'] = \
-                transformed_datas[:, 3]
-            extracted_df[f'{column}_fourier_transed_std'] = \
-                transformed_datas[:, 4]
+            if (low_freq is not None) and (high_freq is not None):
+                extracted_df[f'{column}_selected_fourier_transed_mean'] = \
+                    transformed_datas[:, 0]
+                extracted_df[f'{column}_selected_fourier_transed_median'] = \
+                    transformed_datas[:, 1]
+                extracted_df[f'{column}_selected_fourier_transed_min'] = \
+                    transformed_datas[:, 2]
+                extracted_df[f'{column}_selected_fourier_transed_max'] = \
+                    transformed_datas[:, 3]
+                extracted_df[f'{column}_selected_fourier_transed_std'] = \
+                    transformed_datas[:, 4]
+            else:
+                extracted_df[f'{column}_fourier_transed_mean'] = \
+                    transformed_datas[:, 0]
+                extracted_df[f'{column}_fourier_transed_median'] = \
+                    transformed_datas[:, 1]
+                extracted_df[f'{column}_fourier_transed_min'] = \
+                    transformed_datas[:, 2]
+                extracted_df[f'{column}_fourier_transed_max'] = \
+                    transformed_datas[:, 3]
+                extracted_df[f'{column}_fourier_transed_std'] = \
+                    transformed_datas[:, 4]
 
             self.df = pd.concat([self.df, extracted_df], axis=1)
             self.columns = self.df.columns
@@ -320,6 +347,12 @@ def make_train_df(
             dataset.make_fourier_transformed_df(
                 id_select=id,
                 column_select=column_select
+                )
+            dataset.make_fourier_transformed_df(
+                id_select=id,
+                column_select=column_select,
+                low_freq=5,
+                high_freq=30
                 )
 
         dataset.make_previous_data()
