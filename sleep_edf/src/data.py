@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy import signal
 from scipy.fft import fft, fftfreq
+from scipy.stats import skew, kurtosis
 
 
 class BaseDataSet:
@@ -157,6 +158,8 @@ class FeatureEngineering(BaseDataSet):
             std: bool = True,
             var: bool = True,
             peak: bool = True,
+            skewness: bool = True,
+            kurto: bool = True
             ):
         if init_df:
             self.df = self.make_eeg_df(init_df[0], init_df[1])
@@ -186,6 +189,10 @@ class FeatureEngineering(BaseDataSet):
                 extracted_df[f'{column}_std'] = np.std(datas, axis=1)
             if var:
                 extracted_df[f'{column}_var'] = np.var(datas, axis=1)
+            # if skewness:
+            #     extracted_df[f'{column}_skew'] = skew(datas, axis=1)
+            # if kurto:
+            #     extracted_df[f'{column}_kurtosis'] = kurtosis(datas, axis=1)
             if peak:
                 extracted_df[f'{column}_peak'] = \
                     np.abs(np.max(datas, axis=1))+np.abs(np.min(datas, axis=1))
@@ -208,19 +215,35 @@ class FeatureEngineering(BaseDataSet):
             amplitude = np.abs(yf[:n // 2])
             freq_mask = (xf[:n // 2] >= low_freq) & (xf[:n // 2] <= high_freq)
             selected_amplitude = amplitude[freq_mask]
-            return np.mean(selected_amplitude),np.median(selected_amplitude),np.min(selected_amplitude),np.max(selected_amplitude),np.std(selected_amplitude)
+            return (
+                np.mean(selected_amplitude),
+                np.median(selected_amplitude),
+                np.min(selected_amplitude),
+                np.max(selected_amplitude),
+                np.std(selected_amplitude),
+                skew(selected_amplitude),
+                kurtosis(selected_amplitude)
+                )
         n = len(segment)
         yf = fft(segment)
         # xf = fftfreq(n, 1 / sample_rate)
         amplitude = np.abs(yf[:n // 2])
-        return np.mean(amplitude), np.median(amplitude), np.min(amplitude), np.max(amplitude), np.std(amplitude)
+        return (
+            np.mean(amplitude),
+            np.median(amplitude),
+            np.min(amplitude),
+            np.max(amplitude),
+            np.std(amplitude),
+            skew(amplitude),
+            kurtosis(amplitude)
+            )
 
     def make_fourier_transformed_df(
         self,
         id_select: int,
         column_select: list[int],
-        low_freq: float = None,
-        high_freq: float = None
+        low_freq: list[float] = None,
+        high_freq: list[float] = None
     ) -> pd.DataFrame:
         df = self.make_eeg_df(id_select, column_select)
         columns = df.columns
@@ -231,26 +254,36 @@ class FeatureEngineering(BaseDataSet):
 
             for row in range(0, rows):
                 datas[row] = df[column][row*3000:(row+1)*3000].values
-            transformed_datas = np.array([
-                self.extract_fourier_transformed_statistic_values(
-                    data,
-                    low_freq=low_freq,
-                    high_freq=high_freq
-                    )
-                for data in datas
-                ])
+
             if (low_freq is not None) and (high_freq is not None):
-                extracted_df[f'{column}_selected_fourier_transed_mean'] = \
-                    transformed_datas[:, 0]
-                extracted_df[f'{column}_selected_fourier_transed_median'] = \
-                    transformed_datas[:, 1]
-                extracted_df[f'{column}_selected_fourier_transed_min'] = \
-                    transformed_datas[:, 2]
-                extracted_df[f'{column}_selected_fourier_transed_max'] = \
-                    transformed_datas[:, 3]
-                extracted_df[f'{column}_selected_fourier_transed_std'] = \
-                    transformed_datas[:, 4]
+                for i in range(len(low_freq)):
+                    transformed_datas = np.array([
+                        self.extract_fourier_transformed_statistic_values(
+                            data,
+                            low_freq=low_freq[i],
+                            high_freq=high_freq[i]
+                            )
+                        for data in datas
+                        ])
+                    extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_mean'] = \
+                        transformed_datas[:, 0]
+                    extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_median'] = \
+                        transformed_datas[:, 1]
+                    extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_min'] = \
+                        transformed_datas[:, 2]
+                    extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_max'] = \
+                        transformed_datas[:, 3]
+                    extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_std'] = \
+                        transformed_datas[:, 4]
+                    # extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_skew'] = \
+                    #     transformed_datas[:, 5]
+                    # extracted_df[f'{column}_{low_freq[i]}~{high_freq[i]}_fourier_transed_kurtosis'] = \
+                    #     transformed_datas[:, 6]
             else:
+                transformed_datas = np.array([
+                    self.extract_fourier_transformed_statistic_values(data)
+                    for data in datas
+                    ])
                 extracted_df[f'{column}_fourier_transed_mean'] = \
                     transformed_datas[:, 0]
                 extracted_df[f'{column}_fourier_transed_median'] = \
@@ -261,12 +294,15 @@ class FeatureEngineering(BaseDataSet):
                     transformed_datas[:, 3]
                 extracted_df[f'{column}_fourier_transed_std'] = \
                     transformed_datas[:, 4]
-
+                # extracted_df[f'{column}_fourier_transed_skew'] = \
+                #     transformed_datas[:, 5]
+                # extracted_df[f'{column}_fourier_transed_kurtosis'] = \
+                #     transformed_datas[:, 6]
             self.df = pd.concat([self.df, extracted_df], axis=1)
             self.columns = self.df.columns
         return extracted_df
 
-    def make_previous_data(self):
+    def make_previous_data(self, num: int = 1):
         df = self.df
         previous_df = df.iloc[:-1, :]
         zero_row = pd.DataFrame(
@@ -275,7 +311,7 @@ class FeatureEngineering(BaseDataSet):
             )
         previous_df = pd.concat([zero_row, previous_df], ignore_index=True)
         previous_df.columns = [
-            f'before_{column}' for column in previous_df.columns
+            f'{num}before_{column}' for column in previous_df.columns
             ]
         df = pd.concat([previous_df, df], axis=1)
         self.df = df
@@ -351,11 +387,15 @@ def make_train_df(
             dataset.make_fourier_transformed_df(
                 id_select=id,
                 column_select=column_select,
-                low_freq=5,
-                high_freq=30
+                low_freq=[5],
+                high_freq=[30]
                 )
 
         dataset.make_previous_data()
+        # dataset.make_previous_data(num=2)
+        # dataset.make_previous_data(num=3)
+        # dataset.make_previous_data(num=4)
+        # dataset.make_previous_data(num=5)
         dataset.make_labels()
         dataset.df.drop(
             index=dataset.df[
