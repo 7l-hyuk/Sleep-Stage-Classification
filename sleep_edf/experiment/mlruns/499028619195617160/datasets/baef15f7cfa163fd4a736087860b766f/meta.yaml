@@ -1,0 +1,9 @@
+digest: ab753ed3
+name: dataset
+profile: '{"features_shape": [6396, 57], "features_size": 364572, "features_nbytes":
+  1458288}'
+schema: '{"mlflow_tensorspec": {"features": "[{\"type\": \"tensor\", \"tensor-spec\":
+  {\"dtype\": \"float32\", \"shape\": [-1, 57]}}]", "targets": null}}'
+source: '{"tags": {"mlflow.user": "7lhyu", "mlflow.source.name": "c:/Users/7lhyu/Documents/sleep-edf/sleep_edf/experiment/main.py",
+  "mlflow.source.type": "LOCAL", "mlflow.source.git.commit": "0b108dcedd86f46d2ecd197e061f82ef556438c7"}}'
+source_type: code

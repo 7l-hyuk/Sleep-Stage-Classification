@@ -28,17 +28,17 @@ def band_pass_filter(segment: pd.Series) -> list[np.ndarray]:
     return filtered_features
 
 
-def esis_(segment: np.ndarray, band_name: str, gamma: int = 100):
-    v = dict()
+def esis(segment: np.ndarray, band_name: str, gamma: int = 100) -> float:
+    velocity = dict()
     for band in eeg_bands:
-        v[band] = (sum(eeg_bands[band])/2)*gamma
-    return np.sum((segment)**2)*v[band_name]
+        velocity[band] = (sum(eeg_bands[band])/2)*gamma
+    return np.sum((segment)**2)*velocity[band_name]
 
 
-def mmd_(
+def mmd(
         segment: np.ndarray,
         window_size: int = 100
-        ) -> np.ndarray[np.ndarray]:
+        ) -> float:
     mmd_val = 0
     for i in range(len(segment)//window_size):
         window = segment[i*window_size: (i+1)*window_size]
@@ -65,7 +65,7 @@ def fourier_transformed_stats_values(
         sample_rate: float = 100.0,
         low_freq: float = None,
         high_freq: float = None
-        ) -> np.ndarray:
+        ) -> tuple[np.ndarray]:
     n = len(segment)
     yf = fft(segment)
     if (low_freq is not None) and (high_freq is not None):

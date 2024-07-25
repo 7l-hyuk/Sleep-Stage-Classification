@@ -1,0 +1,27 @@
+train_data_setting:
+  id_select: 40
+  column_select: [0]
+  unknown: [119]
+  test_size: 0.2
+  valid_size: 0.5
+  random_state: 42
+  band_filter: True
+  fourier_transform: True
+  mean: True
+  median: True
+  max_: True
+  min_: True
+  std: True
+  skewness: True
+  kurtosis_: True
+  esis_: True
+  mmd_: True
+  pre_next_rate: 20
+  oversampling: False
+  epoch: 3000
+  
+model_setting:
+  objective: "multi:softmax"
+  learning_rate: 0.1
+  early_stopping_rounds: 10
+  n_estimators: 2000

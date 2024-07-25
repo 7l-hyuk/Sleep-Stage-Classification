@@ -1,17 +1,14 @@
-import os
-import sys
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import f1_score, accuracy_score
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ['HYDRA_FULL_ERROR'] = "1"
-from src.model import Model
-from src.data import make_train_df
-from src.train import X_y_split
+
+from src.model.model import Model
+from src.data.dataframe import make_train_df
+from src.model.train import X_y_split
 
 
-def make_acc_table(func):
-    def wrapper(file, metrics):
+def _make_acc_table(func):
+    def wrapper(file: str, metrics: list, metric_name: str):
         file.write(
             '''
 \\begin{table}[H]
@@ -23,18 +20,18 @@ def make_acc_table(func):
     ''')
         func(file, metrics)
         file.write(
-            '''
+            f'''
 \\bottomrule    
-\\end{tabular*}
-\\caption{Prediction Accuracy for Patients}
-\\label{tab:accuracy}
-\\end{table}
+\\end{{tabular*}}
+\\caption{{Prediction {metric_name} for Patients}}
+\\label{{tab:accuracy}}
+\\end{{table}}
 ''')
     return wrapper
 
 
-def make_stats_table(func):
-    def wrapper(file, metrics):
+def _make_stats_table(func):
+    def wrapper(file: str, metrics: list, metric_name: str):
         file.write(
             '''
 \\begin{table}[H]
@@ -46,20 +43,21 @@ def make_stats_table(func):
     ''')
         func(file, metrics)
         file.write(
-            '''
+            f'''
 \\bottomrule
-\\end{tabular*}
-\\caption{Statistics of Accuracy}
-\\label{tab:stats}
-\\end{table}
+\\end{{tabular*}}
+\\caption{{Statistics of {metric_name}}}
+\\label{{tab:stats}}
+\\end{{table}}
 ''')
     return wrapper
 
 
-@make_acc_table
+@_make_acc_table
 def write_accuracy_line(file, metrics):
     for i in range(len(metrics)//3):
-        file.write(f'{metrics[i*3][0]} & {metrics[i*3][1]*100:.2f} & {metrics[1+i*3][0]} & {metrics[1+i*3][1]*100:.2f} & {metrics[2+i*3][0]} & {metrics[2+i*3][1]*100:.2f} \\\\\n')
+        file.write(
+            f'{metrics[i*3][0]} & {metrics[i*3][1]*100:.2f} & {metrics[1+i*3][0]} & {metrics[1+i*3][1]*100:.2f} & {metrics[2+i*3][0]} & {metrics[2+i*3][1]*100:.2f} \\\\\n')
     if len(metrics) % 3 != 0:
         end_line = []
         for acc in metrics[-(len(metrics) % 3):]:
@@ -68,9 +66,9 @@ def write_accuracy_line(file, metrics):
         file.write(line)
 
 
-@make_stats_table
+@_make_stats_table
 def write_stats_table(file, metrics):
-    metric = [acc[1] for acc in metrics]
+    metric = [metric[1] for metric in metrics]
     file.write(
         f'''
 Mean & {np.mean(metric)*100:.2f} \\\\
@@ -79,9 +77,14 @@ Standard Deviation & {np.std(metric)*100:.2f} \\\\
 Minimum & {np.min(metric)*100:.2f} \\\\
 Maximum & {np.max(metric)*100:.2f} \\\\
 ''')
-    
 
-def save_metrics_graph(metrics, start, end, path,):
+
+def save_metrics_graph(
+        metrics: dict[str, list],
+        start: int,
+        end: int,
+        path: str
+        ):
     for metric in metrics:
         plt.figure(figsize=(15, 5))
         plt.plot(
@@ -101,16 +104,17 @@ def make_metrics(cfg, start, end):
     column_select = cfg.train_data_setting.column_select
     band_filter = cfg.train_data_setting.band_filter
     fourier_transform = cfg.train_data_setting.fourier_transform
-    mean = cfg.train_data_setting.mean,
-    median = cfg.train_data_setting.median,
-    max = cfg.train_data_setting.max
-    min = cfg.train_data_setting.min
+    mean = cfg.train_data_setting.mean
+    median = cfg.train_data_setting.median
+    max_ = cfg.train_data_setting.max_
+    min_ = cfg.train_data_setting.min_
     std = cfg.train_data_setting.std
-    var = cfg.train_data_setting.var
-    peak = cfg.train_data_setting.peak
-    pre_next_rate = cfg.train_data_setting.pre_next_rate,
+    skewness = cfg.train_data_setting.skewness
+    kurtosis_ = cfg.train_data_setting.kurtosis_
+    mmd_ = cfg.train_data_setting.mmd_
+    esis_ = cfg.train_data_setting.esis_
+    pre_next_rate = cfg.train_data_setting.pre_next_rate
     epoch = cfg.train_data_setting.epoch
-    
     model = Model()
     model.train_test(cfg)
 
@@ -127,12 +131,14 @@ def make_metrics(cfg, start, end):
                 fourier_transform=fourier_transform,
                 mean=mean,
                 median=median,
-                max=max,
-                min=min,
+                max_=max_,
+                min_=min_,
                 std=std,
-                var=var,
-                peak=peak,
-                pre_next_rate=15,
+                skewness=skewness,
+                kurtosis_=kurtosis_,
+                esis_=esis_,
+                mmd_=mmd_,
+                pre_next_rate=pre_next_rate,
                 epoch=epoch
             )
             X, y, _ = X_y_split(test_df)
@@ -144,7 +150,8 @@ def make_metrics(cfg, start, end):
             f1_weighteds += [(id, f1_weighted)]
             f1_macros += [(id, f1_macro)]
             print(f'Pass the ID: {id}, acc: {acc*100} %')
-        except:
+        except Exception as e:
+            print(e)
             print(f'ID: {id} has somthing problems!')
     return accuracys, f1_weighteds, f1_macros
 
@@ -154,21 +161,21 @@ def write_metrics_grpah(file):
             '''
 \\begin{figure}[H]
 \\centering
-\\includegraphics[width=\\textwidth]{accuracy.png}
+\\includegraphics[width=\\textwidth]{Accuracy.png}
 \\caption{Accuracy for Each Patient}
 \\label{tab:perfomance}
 \\end{figure}
 
 \\begin{figure}[H]
 \\centering
-\\includegraphics[width=\\textwidth]{weighted_f1_score.png}
+\\includegraphics[width=\\textwidth]{Weighted F1-score.png}
 \\caption{Weighted F1-score for Each Patient}
 \\label{tab:perfomance}
 \\end{figure}
 
 \\begin{figure}[H]
 \\centering
-\\includegraphics[width=\\textwidth]{macro_f1_score.png}
+\\includegraphics[width=\\textwidth]{Macro F1-score.png}
 \\caption{Macro F1-score for Each Patient}
 \\label{tab:perfomance}
 \\end{figure}

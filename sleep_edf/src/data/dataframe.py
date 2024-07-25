@@ -1,12 +1,14 @@
 from glob import glob
+
 from pyedflib import highlevel
 import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
+
 from src.data.stats_utils import (
     band_pass_filter,
-    esis_,
-    mmd_,
+    esis,
+    mmd,
     fourier_transformed_stats_values
     )
 
@@ -48,20 +50,18 @@ class BaseDataSet:
         Parameters
         ----------
         id : int
-            Specific id in the EEG dataset
+            Specific ID in the EEG data
         column_select : list[int], default None
-            Specific features
+            Specific EEG channel
 
         Returns
         -------
         pandas.DataFrame
-            Dataframe that contain selected eeg dataset
+            Dataframe that contains selected EEG dataset
 
         Examples
         --------
         >>> dataset = BaseDataSet()
-        >>> eeg_df = dataset.make_eed_df(0)
-
         >>> eef_df = dataset.make_eeg_df(0, [0, 1])
         '''
         psg = highlevel.read_edf(self.psg_paths[id])
@@ -91,14 +91,14 @@ class BaseDataSet:
         '''
         Make sleep stage data
 
-        parameters
+        Parameters
         ----------
         id : int
 
         Returns
         -------
         pandas.DataFrame
-            Dataframe that contain time, duration and sleep_stage
+            Dataframe that contains time, duration and sleep_stage
         '''
         hypnogram = highlevel.read_edf(self.hypnogram_paths[id])
         stages = hypnogram[2]['annotations']
@@ -159,10 +159,10 @@ class FeatureEngineering(BaseDataSet):
             std: bool = True,
             skewness: bool = True,
             kurtosis_: bool = True,
-            mmd: bool = True,
-            esis: bool = False,
+            mmd_: bool = True,
+            esis_: bool = False,
             epoch: int = 3000
-            ):
+            ) -> pd.DataFrame:
         if init_df:
             self.df = self.make_eeg_df(init_df[0], init_df[1])
             self.columns = self.df.columns
@@ -185,13 +185,13 @@ class FeatureEngineering(BaseDataSet):
             for stats_type in stats_types:
                 extracted_df[f'{column}_{stats_types}'] = \
                     self.stats_funcs[stats_type](datas, axis=1)
-            if mmd:
+            if mmd_:
                 extracted_df[f'{column}_mmd'] = \
-                    [mmd_(data) for data in datas]
-            if esis:
+                    [mmd(data) for data in datas]
+            if esis_:
                 band_name = column[column.find('_')+1:]
                 extracted_df[f'{column}_esis'] = \
-                    [esis_(data, band_name) for data in datas]
+                    [esis(data, band_name) for data in datas]
 
         self.df = extracted_df
         self.columns = extracted_df.columns
@@ -245,7 +245,7 @@ class FeatureEngineering(BaseDataSet):
             self.columns = self.df.columns
         return extracted_df
 
-    def make_previous_next_data(self, pre_next_rate: int = 5):
+    def make_previous_next_data(self, pre_next_rate: int = 5) -> pd.DataFrame:
         df = self.df
         return_df = df.copy()
         for r in range(1, pre_next_rate+1):
@@ -276,7 +276,7 @@ class FeatureEngineering(BaseDataSet):
         self.columns = return_df.columns
         return df
 
-    def make_labels(self, epoch: int = 3000):
+    def make_labels(self, epoch: int = 3000) -> pd.DataFrame:
         df = self.df
         stage_df = self.make_stage_df(self.selected_id)
         sleep_stage = []
@@ -308,19 +308,19 @@ def make_train_df(
         std: bool = True,
         skewness: bool = True,
         kurtosis_: bool = True,
-        mmd: bool = True,
-        esis: bool = True,
+        mmd_: bool = True,
+        esis_: bool = True,
         pre_next_rate: int = 5,
         epoch: int = 3000
-        ):
+        ) -> pd.DataFrame:
     train_df = pd.DataFrame()
     for id in id_select:
         dataset = FeatureEngineering()
-        init = 0
+        initialized = False
         if band_filter:
-            init = 1
+            initialized = True
             dataset.make_filtered_df(id_select=id, column_select=column_select)
-        if not init:
+        if not initialized:
             dataset.make_statistic_df(
                 init_df=[id, column_select],
                 mean=mean,
@@ -330,8 +330,8 @@ def make_train_df(
                 std=std,
                 skewness=skewness,
                 kurtosis_=kurtosis_,
-                mmd=mmd,
-                esis=esis,
+                mmd_=mmd_,
+                esis_=esis_,
                 epoch=epoch
                 )
         else:
@@ -343,8 +343,8 @@ def make_train_df(
                 std=std,
                 skewness=skewness,
                 kurtosis_=kurtosis_,
-                mmd=mmd,
-                esis=esis,
+                mmd_=mmd_,
+                esis_=esis_,
                 epoch=epoch
             )
         if fourier_transform:
@@ -353,7 +353,6 @@ def make_train_df(
                 column_select=column_select,
                 epoch=epoch
                 )
-
             dataset.make_fourier_transformed_df(
                 id_select=id,
                 column_select=column_select,
