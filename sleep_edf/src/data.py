@@ -1,32 +1,20 @@
 from glob import glob
-
 from pyedflib import highlevel
 import pandas as pd
 import numpy as np
+from scipy import signal
+from scipy.fft import fft, fftfreq
 from scipy.stats import skew, kurtosis
-
-from src.data.stats_utils import (
-    band_pass_filter,
-    esis,
-    mmd,
-    fourier_transformed_stats_values
-    )
 
 
 class BaseDataSet:
     '''
-    Make eeg or sleep stage data by using sleep-edf dataset.
+    Make base data like eeg or sleep stage by using sleep-edf dataset.
 
     Parameters
     ----------
     base_path : str, default './sleep-edf-database-expanded-1.0.0/'
         The path of sleep_edf dataset.
-
-    Attributes
-    ----------
-    base_path : str
-    psg_paths : list
-    hypnogram_paths : list
     '''
     def __init__(
             self,
@@ -50,19 +38,24 @@ class BaseDataSet:
         Parameters
         ----------
         id : int
-            Specific ID in the EEG data
+            Select specific id in the eeg dataset
         column_select : list[int], default None
-            Specific EEG channel
+            Select specific features you want to import
 
         Returns
         -------
         pandas.DataFrame
-            Dataframe that contains selected EEG dataset
+            Dataframe that contain eeg data
 
         Examples
         --------
         >>> dataset = BaseDataSet()
+        >>> eeg_df = dataset.make_eed_df(0)
+        >>> eeg_df.head()
+
         >>> eef_df = dataset.make_eeg_df(0, [0, 1])
+        >>> eeg_df.head()
+
         '''
         psg = highlevel.read_edf(self.psg_paths[id])
         eeg, info = psg[0], psg[1]
@@ -91,14 +84,14 @@ class BaseDataSet:
         '''
         Make sleep stage data
 
-        Parameters
+        parameters
         ----------
         id : int
 
         Returns
         -------
         pandas.DataFrame
-            Dataframe that contains time, duration and sleep_stage
+            Dataframe that contain time, duration and sleep_stage
         '''
         hypnogram = highlevel.read_edf(self.hypnogram_paths[id])
         stages = hypnogram[2]['annotations']
@@ -114,15 +107,27 @@ class FeatureEngineering(BaseDataSet):
         self.columns: list[str] = list()
         self.selected_id: int = None
         self.seleted_column: list = None
-        self.stats_funcs = {
-            'mean': np.mean,
-            'median': np.median,
-            'max': np.max,
-            'min': np.min,
-            'std': np.std,
-            'skew': skew,
-            'kurtosis': kurtosis
-        }
+
+    def band_pass_filter(self, segment: pd.Series) -> list[np.ndarray]:
+        eeg_bands = {
+            'Delta': (0.5, 4),
+            'Theta': (4, 8),
+            'Alpha': (8, 12),
+            'Beta': (12, 30),
+            'Gamma': (30, 45)
+            }
+        filtered_features = []
+        for band in eeg_bands:
+            low, high = eeg_bands[band]
+            band_pass_filter = signal.butter(
+                3, [low, high],
+                btype='bandpass',
+                fs=100,
+                output='sos'
+                )
+            filtered = signal.sosfilt(band_pass_filter, segment)
+            filtered_features += [filtered]
+        return filtered_features
 
     def make_filtered_df(
             self,
@@ -140,7 +145,7 @@ class FeatureEngineering(BaseDataSet):
 
         filtered = []
         for column in eeg_df.columns:
-            filtered += band_pass_filter(eeg_df[column])
+            filtered += self.band_pass_filter(eeg_df[column])
 
         filtered_eeg_df = pd.DataFrame(columns=self.columns)
         for i in range(len(filtered)):
@@ -154,72 +159,109 @@ class FeatureEngineering(BaseDataSet):
             init_df: list[int | list[int]] = None,
             mean: bool = True,
             median: bool = True,
-            max_: bool = True,
-            min_: bool = True,
+            max: bool = True,
+            min: bool = True,
             std: bool = True,
-            skewness: bool = True,
-            kurtosis_: bool = True,
-            mmd_: bool = True,
-            esis_: bool = True,
-            epoch: int = 3000
-            ) -> pd.DataFrame:
+            var: bool = True,
+            peak: bool = True,
+            skewness: bool = False,
+            kurto: bool = False
+            ):
         if init_df:
             self.df = self.make_eeg_df(init_df[0], init_df[1])
             self.columns = self.df.columns
             self.selected_id = init_df[0]
             self.seleted_column = init_df[1]
 
-        stats_types = np.array(list(self.stats_funcs.keys()))[[
-            mean, median, max_, min_, std, skewness, kurtosis_
-            ]]
         extracted_df = pd.DataFrame()
         df = self.df
         columns = self.columns
-
         for column in columns:
-            datas = np.zeros((rows := len(df)//epoch, epoch))
+            datas = np.zeros((rows := len(df)//3000, 3000))
 
             for row in range(0, rows):
-                datas[row] = df[column][row*epoch:(row+1)*epoch].values
+                datas[row] = df[column][row*3000:(row+1)*3000].values
 
-            for stats_type in stats_types:
-                extracted_df[f'{column}_{stats_type}'] = \
-                    self.stats_funcs[stats_type](datas, axis=1)
-            if mmd_:
-                extracted_df[f'{column}_mmd'] = \
-                    [mmd(data) for data in datas]
-            if esis_:
-                band_name = column[column.find('_')+1:]
-                extracted_df[f'{column}_esis'] = \
-                    [esis(data, band_name) for data in datas]
+            if mean:
+                extracted_df[f'{column}_mean'] = np.mean(datas, axis=1)
+            if median:
+                extracted_df[f'{column}_median'] = np.median(datas, axis=1)
+            if max:
+                extracted_df[f'{column}_max'] = np.max(datas, axis=1)
+            if min:
+                extracted_df[f'{column}_min'] = np.min(datas, axis=1)
+            if std:
+                extracted_df[f'{column}_std'] = np.std(datas, axis=1)
+            if var:
+                extracted_df[f'{column}_var'] = np.var(datas, axis=1)
+            if peak:
+                extracted_df[f'{column}_peak'] = \
+                    np.abs(np.max(datas, axis=1))+np.abs(np.min(datas, axis=1))
+            if skewness:
+                extracted_df[f'{column}_skew'] = skew(datas, axis=1)
+            if kurto:
+                extracted_df[f'{column}_kurtosis'] = kurtosis(datas, axis=1)
 
         self.df = extracted_df
         self.columns = extracted_df.columns
         return extracted_df
+
+    def extract_fourier_transformed_statistic_values(
+            self,
+            segment: np.ndarray,
+            sample_rate: float = 100.0,
+            low_freq: float = None,
+            high_freq: float = None
+            ) -> np.ndarray:
+        if (low_freq is not None) and (high_freq is not None):
+            n = len(segment)
+            yf = fft(segment)
+            xf = fftfreq(n, 1 / sample_rate)
+            amplitude = np.abs(yf[:n // 2])
+            freq_mask = (xf[:n // 2] >= low_freq) & (xf[:n // 2] <= high_freq)
+            selected_amplitude = amplitude[freq_mask]
+            return (
+                np.mean(selected_amplitude),
+                np.median(selected_amplitude),
+                np.min(selected_amplitude),
+                np.max(selected_amplitude),
+                np.std(selected_amplitude),
+                )
+
+        n = len(segment)
+        yf = fft(segment)
+        # xf = fftfreq(n, 1 / sample_rate)
+        amplitude = np.abs(yf[:n // 2])
+        return (
+            np.mean(amplitude),
+            np.median(amplitude),
+            np.min(amplitude),
+            np.max(amplitude),
+            np.std(amplitude),
+            )
 
     def make_fourier_transformed_df(
         self,
         id_select: int,
         column_select: list[int],
         low_freq: list[float] = None,
-        high_freq: list[float] = None,
-        epoch: int = 3000
+        high_freq: list[float] = None
     ) -> pd.DataFrame:
         df = self.make_eeg_df(id_select, column_select)
         columns = df.columns
 
         extracted_df = pd.DataFrame()
-        stats = ['mean', 'median', 'min', 'max', 'std', "skew", "kurtosis"]
+        stats = ['mean', 'median', 'min', 'max', 'std']
         for column in columns:
-            datas = np.zeros((rows := len(df)//epoch, epoch))
+            datas = np.zeros((rows := len(df)//3000, 3000))
 
             for row in range(0, rows):
-                datas[row] = df[column][row*epoch:(row+1)*epoch].values
+                datas[row] = df[column][row*3000:(row+1)*3000].values
 
             if (low_freq is not None) and (high_freq is not None):
                 for i in range(len(low_freq)):
                     transformed_datas = np.array([
-                        fourier_transformed_stats_values(
+                        self.extract_fourier_transformed_statistic_values(
                             data,
                             low_freq=low_freq[i],
                             high_freq=high_freq[i]
@@ -233,7 +275,7 @@ class FeatureEngineering(BaseDataSet):
                             ] = transformed_datas[:, j]
             else:
                 transformed_datas = np.array([
-                    fourier_transformed_stats_values(data)
+                    self.extract_fourier_transformed_statistic_values(data)
                     for data in datas
                     ])
                 for i in range(len(stats)):
@@ -245,38 +287,29 @@ class FeatureEngineering(BaseDataSet):
             self.columns = self.df.columns
         return extracted_df
 
-    def make_previous_next_data(self, pre_next_rate: int = 5) -> pd.DataFrame:
+    def make_previous_data(self, previous_rate: int = 5):
         df = self.df
         return_df = df.copy()
-        for r in range(1, pre_next_rate+1):
+        for pre in range(1, previous_rate+1):
+            previous_df = df.iloc[:-pre, :]
             zero_rows = pd.DataFrame(
-                data=np.zeros((r, len(df.columns))),
-                columns=df.columns
+                data=np.zeros((pre, len(previous_df.columns))),
+                columns=previous_df.columns
                 )
-            previous_df = df.iloc[:-r, :]
             previous_df = pd.concat(
                 [zero_rows, previous_df],
                 ignore_index=True
                 )
             previous_df.columns = [
-                f'{r}previous_{column}'
+                f'{pre}previous_{column}'
                 for column in previous_df.columns
             ]
-            next_df = df.iloc[r:, :]
-            next_df = pd.concat(
-                [next_df, zero_rows],
-                ignore_index=True
-                )
-            next_df.columns = [
-                f'{r}next_{column}'
-                for column in next_df.columns
-            ]
-            return_df = pd.concat([previous_df, next_df, return_df], axis=1)
+            return_df = pd.concat([previous_df, return_df], axis=1)
         self.df = return_df
         self.columns = return_df.columns
         return df
 
-    def make_labels(self, epoch: int = 3000) -> pd.DataFrame:
+    def make_labels(self):
         df = self.df
         stage_df = self.make_stage_df(self.selected_id)
         sleep_stage = []
@@ -285,7 +318,7 @@ class FeatureEngineering(BaseDataSet):
             for i in range(len(stage_df))
             ]
         for time in range(len(df)):
-            end = (time+1)*int(epoch//100)
+            end = (time+1)*30
             for t in range(len(sleep_stage_bound)):
                 if end <= sleep_stage_bound[t]:
                     sleep_stage.append(stage_df['sleep_stage'][t])
@@ -303,66 +336,55 @@ def make_train_df(
         fourier_transform: bool = True,
         mean: bool = True,
         median: bool = True,
-        max_: bool = True,
-        min_: bool = True,
+        max: bool = True,
+        min: bool = True,
         std: bool = True,
-        skewness: bool = True,
-        kurtosis_: bool = True,
-        mmd_: bool = True,
-        esis_: bool = True,
-        pre_next_rate: int = 5,
-        epoch: int = 3000
-        ) -> pd.DataFrame:
+        var: bool = True,
+        peak: bool = True,
+        previous_rate: int = 5
+        ):
     train_df = pd.DataFrame()
     for id in id_select:
         dataset = FeatureEngineering()
-        initialized = False
+        init = 0
         if band_filter:
-            initialized = True
+            init = 1
             dataset.make_filtered_df(id_select=id, column_select=column_select)
-        if not initialized:
+        if not init:
             dataset.make_statistic_df(
                 init_df=[id, column_select],
                 mean=mean,
                 median=median,
-                max_=max_,
-                min_=min_,
+                max=max,
+                min=min,
                 std=std,
-                skewness=skewness,
-                kurtosis_=kurtosis_,
-                mmd_=mmd_,
-                esis_=esis_,
-                epoch=epoch
+                var=var,
+                peak=peak
                 )
         else:
             dataset.make_statistic_df(
                 mean=mean,
                 median=median,
-                max_=max_,
-                min_=min_,
+                max=max,
+                min=min,
                 std=std,
-                skewness=skewness,
-                kurtosis_=kurtosis_,
-                mmd_=mmd_,
-                esis_=esis_,
-                epoch=epoch
+                var=var,
+                peak=peak
             )
         if fourier_transform:
             dataset.make_fourier_transformed_df(
                 id_select=id,
-                column_select=column_select,
-                epoch=epoch
+                column_select=column_select
                 )
             dataset.make_fourier_transformed_df(
                 id_select=id,
                 column_select=column_select,
-                low_freq=[0.5, 4, 8, 12, 30],
-                high_freq=[4, 8, 12, 30, 45],
-                epoch=epoch
+                low_freq=[0],
+                high_freq=[5]
                 )
 
-        dataset.make_previous_next_data(pre_next_rate=pre_next_rate)
-        dataset.make_labels(epoch=epoch)
+        dataset.make_previous_data(previous_rate=previous_rate)
+        dataset.make_labels()
         dataset.df.drop(
             index=dataset.df[
                 (dataset.df['sleep_stage'] != 'Sleep stage W') &
