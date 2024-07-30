@@ -161,7 +161,7 @@ class FeatureEngineering(BaseDataSet):
             kurtosis_: bool = True,
             mmd_: bool = True,
             esis_: bool = True,
-            epoch: int = 3000
+            epoch: int = 3000,
             ) -> pd.DataFrame:
         if init_df:
             self.df = self.make_eeg_df(init_df[0], init_df[1])
@@ -169,6 +169,13 @@ class FeatureEngineering(BaseDataSet):
             self.selected_id = init_df[0]
             self.seleted_column = init_df[1]
 
+        df = self.df.copy()
+        columns = self.columns
+        for column in columns:
+            self.df[f'diff0 {column}'] = df[column].diff()
+            self.df.loc[0, f'diff0 {column}'] = 0
+            
+        self.columns = self.df.columns
         stats_types = np.array(list(self.stats_funcs.keys()))[[
             mean, median, max_, min_, std, skewness, kurtosis_
             ]]

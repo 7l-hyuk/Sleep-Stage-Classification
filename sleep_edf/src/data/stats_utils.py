@@ -17,13 +17,13 @@ def band_pass_filter(segment: pd.Series) -> list[np.ndarray]:
     filtered_features = []
     for band in eeg_bands:
         low, high = eeg_bands[band]
-        band_pass_filter = signal.butter(
+        filter = signal.butter(
             3, [low, high],
             btype='bandpass',
             fs=100,
             output='sos'
             )
-        filtered = signal.sosfilt(band_pass_filter, segment)
+        filtered = signal.sosfilt(filter, segment)
         filtered_features += [filtered]
     return filtered_features
 
@@ -56,7 +56,7 @@ def mmd(
             if window[x] == min_val:
                 min_point = np.array([x, min_val])
                 break
-        mmd_val += np.sqrt(np.sum((max_point - min_point)**2))
+        mmd_val += (np.sum((max_point - min_point)**2))**(1/2)
     return mmd_val
 
 
@@ -70,8 +70,8 @@ def fourier_transformed_stats_values(
     yf = fft(segment)
     if (low_freq is not None) and (high_freq is not None):
         xf = fftfreq(n, 1 / sample_rate)
-        amplitude = np.abs(yf[:n // 2])
         freq_mask = (xf[:n // 2] >= low_freq) & (xf[:n // 2] <= high_freq)
+        amplitude = np.abs(yf[:n // 2])
         amplitude = amplitude[freq_mask]
     else:
         amplitude = np.abs(yf[:n // 2])
